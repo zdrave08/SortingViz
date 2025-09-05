@@ -142,8 +142,8 @@ C#/.NET 8 WinForms port + features: collaborative refactor in this project
 This project is licensed under the MIT License.
 Ovaj projekat je licenciran pod MIT licencom.
 
-See LICENSE for full text.
-Pogledaj LICENSE za ceo tekst.
+See [LICENSE](https://github.com/zdrave08/SortingViz/blob/master/LICENSE.txt) for full text.
+Pogledaj [LICENSE](https://github.com/zdrave08/SortingViz/blob/master/LICENSE.txt) za ceo tekst.
 
 ## 🗣️ Notes / Napomene
 
