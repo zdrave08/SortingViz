@@ -170,5 +170,17 @@
             Metrics.Comparisons++;
             return v1.CompareTo(v2);
         }
+
+        public void LoadValues(int[] data)
+        {
+            lock (_lock)
+            {
+                values = data.ToArray();             // kopija
+                // Ako koristiš metrike: resetuj ih po želji
+                // Metrics.Reset();  // (ako imaš metodu)
+                // Redraw celog platna:
+                Redraw(0, values.Length, full: true);
+            }
+        }
     }
 }

@@ -1,4 +1,5 @@
 using SortingViz.Core;
+using System.Windows.Forms.DataVisualization.Charting;
 
 namespace SortingViz
 {
@@ -13,8 +14,11 @@ namespace SortingViz
         private readonly List<SortAlgorithm> _algos;
         private readonly Dictionary<string, (string Best, string Avg, string Worst, string Space)> _bigO;
 
-        private TrackBar _delay;
-        private Label _delayLbl;
+        private readonly TrackBar _delay;
+        private readonly Label _delayLbl;
+
+        private readonly ComboBox _dataset;
+        private readonly Chart _chart;
 
         public SortingViz(IEnumerable<SortAlgorithm> algos)
         {
@@ -59,6 +63,10 @@ namespace SortingViz
             _size = new TextBox { Text = "60", Dock = DockStyle.Fill };
             _scale = new TextBox { Text = "8", Dock = DockStyle.Fill };
 
+            _dataset = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Dock = DockStyle.Fill };
+            _dataset.Items.AddRange(new object[] { "Random", "Sorted", "Reversed", "NearlySorted", "FewUniques" });
+            _dataset.SelectedIndex = 0;
+
             _delay = new TrackBar { Minimum = 0, Maximum = 200, TickFrequency = 10, Value = 20, Dock = DockStyle.Fill };
             _delayLbl = new Label { Text = "20 ms", AutoSize = true, Padding = new Padding(8, 6, 0, 0) };
             _delay.ValueChanged += (s, e) => _delayLbl.Text = $"{_delay.Value} ms";
@@ -81,15 +89,29 @@ namespace SortingViz
             _metricsLbl = new Label { Dock = DockStyle.Top, AutoSize = true, Padding = new Padding(8, 6, 8, 6) };
             _bigOLbl = new Label { Dock = DockStyle.Top, AutoSize = true, Padding = new Padding(8, 0, 8, 8) };
 
+            // Graf metrika
+            _chart = new Chart { Dock = DockStyle.Fill, Height = 220 };
+            var area = new ChartArea("main");
+            area.AxisX.Title = "n (array size)";
+            area.AxisY.Title = "Count / ms";
+            _chart.ChartAreas.Add(area);
+            _chart.Legends.Add(new Legend { Docking = Docking.Bottom });
+
+            _chart.Series.Add(new Series("Comparisons") { ChartType = SeriesChartType.Line, BorderWidth = 2, MarkerStyle = MarkerStyle.Circle });
+            _chart.Series.Add(new Series("Swaps") { ChartType = SeriesChartType.Line, BorderWidth = 2, MarkerStyle = MarkerStyle.Circle });
+            _chart.Series.Add(new Series("Elapsed ms") { ChartType = SeriesChartType.Line, BorderWidth = 2, MarkerStyle = MarkerStyle.Circle });
+
             // Root layout: svako u svoj red
             var root = new TableLayoutPanel { Dock = DockStyle.Fill, RowCount = 3 };
             root.RowStyles.Add(new RowStyle(SizeType.AutoSize));            // top
             root.RowStyles.Add(new RowStyle(SizeType.AutoSize));            // metrics
             root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));        // big-O / sadržaj dole
+            root.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
 
             root.Controls.Add(top, 0, 0);
             root.Controls.Add(_metricsLbl, 0, 1);
             root.Controls.Add(_bigOLbl, 0, 2);
+            root.Controls.Add(_chart, 0, 3);
 
             Controls.Add(root);
 
@@ -98,6 +120,52 @@ namespace SortingViz
 
             UpdateBigO();
             _algo.SelectedIndexChanged += (s, e) => UpdateBigO();
+        }
+
+        public enum DatasetType { Random, Sorted, Reversed, NearlySorted, FewUniques }
+
+        public static class Datasets
+        {
+            public static int[] Generate(int n, DatasetType type, int seed = 0)
+            {
+                var rnd = seed == 0 ? new Random() : new Random(seed);
+                var arr = Enumerable.Range(1, n).ToArray();
+
+                switch (type)
+                {
+                    case DatasetType.Random:
+                        for (int i = n - 1; i > 0; i--) 
+                        { 
+                            int j = rnd.Next(i + 1); (arr[i], arr[j]) = (arr[j], arr[i]); 
+                        }
+                        break;
+
+                    case DatasetType.Sorted:
+                        // već sortirano
+                        break;
+
+                    case DatasetType.Reversed:
+                        Array.Reverse(arr);
+                        break;
+
+                    case DatasetType.NearlySorted:
+                        // ~5% nasumičnih swapova
+                        int k = Math.Max(1, n / 20);
+                        for (int t = 0; t < k; t++)
+                        {
+                            int i = rnd.Next(n), j = rnd.Next(n);
+                            (arr[i], arr[j]) = (arr[j], arr[i]);
+                        }
+                        break;
+
+                    case DatasetType.FewUniques:
+                        // mali broj različitih vrednosti
+                        int kinds = Math.Max(2, Math.Min(7, n / 10));
+                        for (int i = 0; i < n; i++) arr[i] = (rnd.Next(kinds) + 1) * (n / kinds);
+                        break;
+                }
+                return arr;
+            }
         }
 
         private void UpdateBigO()
@@ -112,25 +180,37 @@ namespace SortingViz
             if (!int.TryParse(_size.Text, out int size) || size <= 1) { MessageBox.Show("Invalid size"); return; }
             if (!int.TryParse(_scale.Text, out int scale) || scale <= 0) { MessageBox.Show("Invalid scale"); return; }
 
+            var type = (DatasetType)_dataset.SelectedIndex; // redosled se poklapa sa Items
+            int[] initial = Datasets.Generate(size, type);
 
             var array = new VisualSortArray(size, scale);
             var algo = _algos[_algo.SelectedIndex];
+            array.LoadValues(initial);
             array.SetDelay(_delay.Value);
             var thread = new SortThread(array, algo);
 
 
             var frame = new SortFrame($"{algo.Name} sort", array.GetCanvas(), thread)
-            { Size = new Size(size * scale + 16, size * scale + 39) };
-
+            { 
+                Size = new Size(size * scale + 16, size * scale + 39) 
+            };
 
             thread.Completed += () =>
             {
                 // Thread → UI
-                if (InvokeRequired) BeginInvoke(new Action(UpdateMetrics)); else UpdateMetrics();
+                if (InvokeRequired) 
+                    BeginInvoke(new Action(UpdateMetrics)); 
+                else 
+                    UpdateMetrics();
+
                 void UpdateMetrics()
                 {
                     var m = array.Metrics;
                     _metricsLbl.Text = $"Metrics: Comparisons = {m.Comparisons:N0}, Swaps = {m.Swaps:N0}, Steps = {m.Steps:N0}, Elapsed = {m.Elapsed.TotalMilliseconds:N0} ms";
+
+                    _chart.Series["Comparisons"].Points.AddXY(size, m.Comparisons);
+                    _chart.Series["Swaps"].Points.AddXY(size, m.Swaps);
+                    _chart.Series["Elapsed ms"].Points.AddXY(size, m.Elapsed.TotalMilliseconds);
                 }
             };
 
